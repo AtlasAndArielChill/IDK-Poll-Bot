@@ -1,136 +1,226 @@
-require("dotenv").config();
-const {
-    Client,
-    GatewayIntentBits,
-    ModalBuilder,
-    TextInputBuilder,
+const { 
+    Client, 
+    GatewayIntentBits, 
+    EmbedBuilder, 
+    ActionRowBuilder, 
+    ButtonBuilder, 
+    ButtonStyle, 
+    SlashCommandBuilder, 
+    ChannelType, 
+    ModalBuilder, 
+    TextInputBuilder, 
     TextInputStyle,
-    ActionRowBuilder,
-    ButtonBuilder,
-    ButtonStyle,
-    SlashCommandBuilder,
-} = require("discord.js");
-const express = require("express");
+    InteractionType,
+    PermissionsBitField,
+    REST,
+    Routes
+} = require('discord.js');
+// --- EXPRESS IMPORTS ---
+const express = require('express');
 
-// Get the channel ID from environment variables
-const POLL_RESULTS_CHANNEL_ID = process.env.POLL_RESULTS_CHANNEL_ID;
+// --- Configuration and Client Initialization ---
 
-const client = new Client({
-    intents: [GatewayIntentBits.Guilds],
-});
+// Replace with your actual Bot Token and Client ID
+const TOKEN = 'YOUR_BOT_TOKEN'; // e.g., process.env.DISCORD_TOKEN
+const CLIENT_ID = 'YOUR_CLIENT_ID'; // e.g., process.env.CLIENT_ID
+// Replace with the Guild ID (Server ID) where you want to test the command immediately
+const GUILD_ID = 'YOUR_GUILD_ID'; 
 
-// Express app setup
-const app = express();
+// --- EXPRESS SERVER SETUP ---
+// Use environment variable PORT if available (common for hosting platforms) or default to 3000
 const PORT = process.env.PORT || 3000;
+const app = express();
 
-app.get("/", (req, res) => {
-    res.send("Bot is online!");
+// A simple GET route to keep the server alive and/or provide a status check
+app.get('/', (req, res) => {
+    res.send('Discord Bot is Online!');
 });
 
+// Start the Express server
 app.listen(PORT, () => {
     console.log(`Web server listening on port ${PORT}`);
 });
+// ------------------------------
 
-// A Map to store active polls and their questions
-const activePolls = new Map();
-
-client.on("ready", () => {
-    console.log(`Logged in as ${client.user.tag}!`);
-    // Register the slash command
-    const commands = [
-        new SlashCommandBuilder()
-            .setName("custompoll")
-            .setDescription("Creates a custom poll")
-            .addStringOption((option) =>
-                option
-                    .setName("question")
-                    .setDescription("The question for the poll")
-                    .setRequired(true),
-            )
-            .toJSON(),
-    ];
-
-    client.application.commands.set(commands);
+const client = new Client({ 
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent 
+    ] 
 });
 
-client.on("interactionCreate", async (interaction) => {
-    if (interaction.isCommand()) {
-        if (interaction.commandName === "custompoll") {
-            const question = interaction.options.getString("question");
+// --- Command Definition and Registration Script (UNMODIFIED) ---
 
-            // Create a unique custom ID for the button to store the question
-            const buttonId = `start_poll_${interaction.id}`;
+const CUSTOM_POLL_COMMAND = new SlashCommandBuilder()
+    .setName('custompoll')
+    .setDescription('Creates a custom poll with an opinion form.')
+    .addStringOption(option =>
+        option.setName('title')
+            .setDescription('The title for the poll embed.')
+            .setRequired(true))
+    .addStringOption(option =>
+        option.setName('question')
+            .setDescription('The question for the poll.')
+            .setRequired(true))
+    .addStringOption(option =>
+        option.setName('duration')
+            .setDescription('Duration of the poll.')
+            .setRequired(true)
+            .addChoices(
+                { name: '1 Hour', value: '1h' },
+                { name: '1 Day', value: '1d' },
+                { name: '1 Week', value: '1w' }
+            ))
+    .addChannelOption(option =>
+        option.setName('results_channel')
+            .setDescription('The channel to send the poll opinions to.')
+            .addChannelTypes(ChannelType.GuildText) // Only allow text channels
+            .setRequired(true))
+    .toJSON();
 
-            // Create the button for the poll
-            const button = new ButtonBuilder()
-                .setCustomId(buttonId)
-                .setLabel("Vote on this Poll")
+
+async function registerCommands() {
+    const rest = new REST({ version: '10' }).setToken(TOKEN);
+
+    try {
+        console.log(`Started refreshing application (/) commands for guild ${GUILD_ID}.`);
+
+        await rest.put(
+            Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+            { body: [CUSTOM_POLL_COMMAND] },
+        );
+
+        console.log('Successfully reloaded application (/) commands.');
+    } catch (error) {
+        console.error("Error registering commands:", error);
+    }
+}
+
+// --- Event Handlers (UNMODIFIED) ---
+
+client.once('ready', () => {
+    console.log(`Bot is ready! Logged in as ${client.user.tag}`);
+    // Register the commands when the bot is ready
+    registerCommands(); 
+});
+
+client.on('interactionCreate', async interaction => {
+    
+    // --- 1. Handle the Slash Command /custompoll ---
+    if (interaction.isChatInputCommand()) {
+        if (interaction.commandName === 'custompoll') {
+            const title = interaction.options.getString('title');
+            const question = interaction.options.getString('question');
+            const duration = interaction.options.getString('duration');
+            const resultsChannel = interaction.options.getChannel('results_channel');
+
+            // --- IMPORTANT SECURITY CHECK ---
+            if (!resultsChannel.permissionsFor(client.user).has(PermissionsBitField.Flags.SendMessages)) {
+                return interaction.reply({ 
+                    content: `I do not have permission to send messages in the specified results channel ${resultsChannel}.`, 
+                    ephemeral: true 
+                });
+            }
+
+            const buttonCustomId = `pollButton_${resultsChannel.id}`;
+
+            const pollEmbed = new EmbedBuilder()
+                .setColor('#0099ff')
+                .setTitle(title)
+                .setDescription(`**Question:** ${question}\n\n*Click the button below to share your opinion.*`)
+                .addFields({ name: 'Opinion Submissions Sent To', value: `${resultsChannel}`, inline: false})
+                .setFooter({ text: `Duration: ${duration}` })
+                .setTimestamp();
+
+            const opinionButton = new ButtonBuilder()
+                .setCustomId(buttonCustomId)
+                .setLabel('Share Opinion')
                 .setStyle(ButtonStyle.Primary);
 
-            const row = new ActionRowBuilder().addComponents(button);
+            const row = new ActionRowBuilder().addComponents(opinionButton);
 
-            // Store the question with the interaction ID for later use
-            activePolls.set(interaction.id, question);
-
-            // Send the message with the button
-            await interaction.reply({
-                content: `**Poll:** ${question}`,
-                components: [row],
+            await interaction.reply({ 
+                embeds: [pollEmbed], 
+                components: [row] 
             });
+            return;
         }
-    } else if (interaction.isButton()) {
-        if (interaction.customId.startsWith("start_poll_")) {
-            const interactionId = interaction.customId.split("_")[2];
-            const question = activePolls.get(interactionId);
+    }
 
-            if (!question) {
-                await interaction.reply({
-                    content: "Sorry, this poll is no longer active!",
-                    ephemeral: true,
-                });
-                return;
-            }
+    // --- 2. Handle the Button Click (Show Modal) ---
+    if (interaction.isButton()) {
+        if (interaction.customId.startsWith('pollButton_')) {
+            const [_, resultsChannelId] = interaction.customId.split('_');
+            const pollMessageId = interaction.message.id;
+            const pollTitle = interaction.message.embeds[0].title;
+            
+            const modalCustomId = `opinionModal_${pollMessageId}_${resultsChannelId}`;
 
-            // Create the modal form
             const modal = new ModalBuilder()
-                .setCustomId(`poll_modal_${interactionId}`)
-                .setTitle(`Poll: ${question}`);
+                .setCustomId(modalCustomId)
+                .setTitle(`Your Opinion on: ${pollTitle.substring(0, 45)}...`); 
 
-            const answerInput = new TextInputBuilder()
-                .setCustomId("poll_answer")
-                .setLabel("Your Answer")
-                .setStyle(TextInputStyle.Short);
+            const opinionInput = new TextInputBuilder()
+                .setCustomId('opinionInput')
+                .setLabel('Your Opinion')
+                .setStyle(TextInputStyle.Paragraph) 
+                .setRequired(true)
+                .setMinLength(10)
+                .setMaxLength(1000); 
 
-            const actionRow = new ActionRowBuilder().addComponents(answerInput);
+            const firstActionRow = new ActionRowBuilder().addComponents(opinionInput);
 
-            modal.addComponents(actionRow);
+            modal.addComponents(firstActionRow);
 
             await interaction.showModal(modal);
+            return;
         }
-    } else if (interaction.isModalSubmit()) {
-        if (interaction.customId.startsWith("poll_modal_")) {
-            const interactionId = interaction.customId.split("_")[2];
-            const pollQuestion = activePolls.get(interactionId);
-            const answer = interaction.fields.getTextInputValue("poll_answer");
+    }
 
-            const resultsChannel = client.channels.cache.get(
-                POLL_RESULTS_CHANNEL_ID,
-            );
-            if (resultsChannel) {
-                // Send the poll answer to the designated channel
-                resultsChannel.send(
-                    `**Poll Answer Received:**\n**Question:** ${pollQuestion}\n**Answer:** ${answer}\n**User:** ${interaction.user.tag}`,
-                );
-            } else {
-                console.error("Poll results channel not found!");
+    // --- 3. Handle the Modal Submission (Send Opinion) ---
+    if (interaction.type === InteractionType.ModalSubmit) {
+        if (interaction.customId.startsWith('opinionModal_')) {
+            const [_, pollMessageId, resultsChannelId] = interaction.customId.split('_');
+
+            const opinionText = interaction.fields.getTextInputValue('opinionInput');
+            
+            const originalTitle = interaction.message?.embeds[0]?.title || 'Unknown Poll';
+
+            const resultsChannel = client.channels.cache.get(resultsChannelId);
+
+            if (!resultsChannel) {
+                return interaction.reply({ content: 'Error: The designated results channel could not be found.', ephemeral: true });
             }
 
-            await interaction.reply({
-                content: "Your vote has been submitted!",
-                ephemeral: true,
-            });
+            const opinionEmbed = new EmbedBuilder()
+                .setColor('#32a852')
+                .setTitle(`New Opinion for: ${originalTitle}`)
+                .setURL(interaction.message.url) 
+                .setDescription(`**Submitted by:** ${interaction.user.tag} (<@${interaction.user.id}>)`)
+                .addFields(
+                    { name: 'Opinion', value: opinionText.substring(0, 1024) }
+                )
+                .setTimestamp();
+
+            try {
+                await resultsChannel.send({ embeds: [opinionEmbed] });
+
+                await interaction.reply({ 
+                    content: `Thank you! Your opinion has been successfully submitted and sent to ${resultsChannel}.`, 
+                    ephemeral: true 
+                });
+            } catch (error) {
+                console.error('Error sending opinion:', error);
+                await interaction.reply({ 
+                    content: 'A system error occurred while sending your opinion. Please check bot permissions.', 
+                    ephemeral: true 
+                });
+            }
+            return;
         }
     }
 });
 
-client.login(process.env.DISCORD_TOKEN);
+// --- Login to Discord ---
+client.login(TOKEN);
