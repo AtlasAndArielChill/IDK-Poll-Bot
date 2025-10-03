@@ -1,3 +1,7 @@
+// Load environment variables from a .env file if available.
+// NOTE: You must install 'dotenv' (npm install dotenv) for this line to work.
+require('dotenv').config();
+
 const { 
     Client, 
     GatewayIntentBits, 
@@ -15,16 +19,21 @@ const {
     REST,
     Routes
 } = require('discord.js');
-// --- EXPRESS IMPORTS ---
 const express = require('express');
 
 // --- Configuration and Client Initialization ---
 
-// Replace with your actual Bot Token and Client ID
-const TOKEN = 'YOUR_BOT_TOKEN'; // e.g., process.env.DISCORD_TOKEN
-const CLIENT_ID = 'YOUR_CLIENT_ID'; // e.g., process.env.CLIENT_ID
-// Replace with the Guild ID (Server ID) where you want to test the command immediately
-const GUILD_ID = 'YOUR_GUILD_ID'; 
+// Read credentials from environment variables
+const TOKEN = process.env.DISCORD_TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;
+const GUILD_ID = process.env.GUILD_ID; 
+
+// Mandatory check for essential variables
+if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
+    console.error("ERROR: Missing one or more required environment variables.");
+    console.error("Please ensure DISCORD_TOKEN, CLIENT_ID, and GUILD_ID are set in your environment or .env file.");
+    process.exit(1);
+}
 
 // --- EXPRESS SERVER SETUP ---
 // Use environment variable PORT if available (common for hosting platforms) or default to 3000
@@ -33,7 +42,7 @@ const app = express();
 
 // A simple GET route to keep the server alive and/or provide a status check
 app.get('/', (req, res) => {
-    res.send('Discord Bot is Online!');
+    res.send('Discord Bot is Online and Serving! Status: OK');
 });
 
 // Start the Express server
@@ -50,7 +59,7 @@ const client = new Client({
     ] 
 });
 
-// --- Command Definition and Registration Script (UNMODIFIED) ---
+// --- Command Definition and Registration Script ---
 
 const CUSTOM_POLL_COMMAND = new SlashCommandBuilder()
     .setName('custompoll')
@@ -97,7 +106,7 @@ async function registerCommands() {
     }
 }
 
-// --- Event Handlers (UNMODIFIED) ---
+// --- Event Handlers ---
 
 client.once('ready', () => {
     console.log(`Bot is ready! Logged in as ${client.user.tag}`);
