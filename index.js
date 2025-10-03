@@ -166,9 +166,21 @@ client.on('interactionCreate', async interaction => {
             
             const modalCustomId = `opinionModal_${pollMessageId}_${resultsChannelId}`;
 
+            // --- FIX FOR MODAL TITLE LENGTH ERROR (Max 45 characters) ---
+            const TITLE_PREFIX = 'Your Opinion on: '; // 19 characters including trailing space
+            const ELLIPSIS = '...'; // 3 characters
+            // Max characters we can safely take from the original title: 45 - 19 - 3 = 23
+            const MAX_TITLE_CHARS_FROM_POLL = 23; 
+
+            // Truncate the poll title safely
+            const truncatedTitle = pollTitle.length > MAX_TITLE_CHARS_FROM_POLL
+                ? pollTitle.substring(0, MAX_TITLE_CHARS_FROM_POLL) + ELLIPSIS
+                : pollTitle;
+
             const modal = new ModalBuilder()
                 .setCustomId(modalCustomId)
-                .setTitle(`Your Opinion on: ${pollTitle.substring(0, 45)}...`); 
+                .setTitle(TITLE_PREFIX + truncatedTitle); // Final title is max 45 characters
+            // -----------------------------------------------------------
 
             const opinionInput = new TextInputBuilder()
                 .setCustomId('opinionInput')
@@ -216,7 +228,7 @@ client.on('interactionCreate', async interaction => {
                 await resultsChannel.send({ embeds: [opinionEmbed] });
 
                 await interaction.reply({ 
-                    content: `Thank you! Your opinion has been successfully submitted and sent to ${resultsChannel}.`, 
+                    content: `Thank thank you! Your opinion has been successfully submitted and sent to ${resultsChannel}.`, 
                     ephemeral: true 
                 });
             } catch (error) {
